@@ -18,6 +18,11 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
+// Package defaults.
+const (
+	DefaultTimeout = 1 * time.Minute
+)
+
 // Custom errors returned by this package.
 var (
 	ErrLoginFailed = fmt.Errorf("authentication failed")
@@ -49,7 +54,8 @@ type Qbit struct {
 type Duration struct{ time.Duration }
 
 type client struct {
-	auth string
+	auth   string
+	cookie bool
 	*http.Client
 }
 
@@ -109,7 +115,15 @@ func (d *Duration) UnmarshalText(data []byte) (err error) {
 	return
 }
 
+func NewNoAuth(config *Config) (*Qbit, error) {
+	return newConfig(config, false)
+}
+
 func New(config *Config) (*Qbit, error) {
+	return newConfig(config, true)
+}
+
+func newConfig(config *Config, login bool) (*Qbit, error) {
 	// The cookie jar is used to auth Qbit.
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
@@ -127,7 +141,7 @@ func New(config *Config) (*Qbit, error) {
 	}
 
 	if config.Timeout.Duration == 0 {
-		config.Timeout.Duration = 1 * time.Minute
+		config.Timeout.Duration = DefaultTimeout
 	}
 
 	qbit := &Qbit{
@@ -142,6 +156,10 @@ func New(config *Config) (*Qbit, error) {
 				Timeout: config.Timeout.Duration,
 			},
 		},
+	}
+
+	if !login {
+		return qbit, nil
 	}
 
 	return qbit, qbit.login()
@@ -173,6 +191,8 @@ func (q *Qbit) login() error {
 		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
 	}
 
+	q.client.cookie = true
+
 	return nil
 }
 
@@ -194,6 +214,12 @@ func (c *client) Do(req *http.Request) (*http.Response, error) {
 
 // GetXfers returns data about all transfers/downloads in the Qbit client.
 func (q *Qbit) GetXfers() ([]*Xfer, error) {
+	if !q.client.cookie {
+		if err := q.login(); err != nil {
+			return nil, err
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), q.config.Timeout.Duration)
 	defer cancel()
 
