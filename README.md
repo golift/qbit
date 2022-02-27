@@ -33,7 +33,7 @@ func main() {
 		log.Fatalln("[ERROR]", err)
 	}
 
-	xfers, err := q.GetXfers()
+	_, xfers, err := q.GetXfers()
 	if err != nil {
 		log.Fatalln("[ERROR]", err)
 	}

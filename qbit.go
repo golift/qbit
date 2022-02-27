@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"golang.org/x/net/publicsuffix"
+	"golift.io/datacounter"
 )
 
 // Package defaults.
@@ -213,10 +214,10 @@ func (c *client) Do(req *http.Request) (*http.Response, error) {
 }
 
 // GetXfers returns data about all transfers/downloads in the Qbit client.
-func (q *Qbit) GetXfers() ([]*Xfer, error) {
+func (q *Qbit) GetXfers() (int64, []*Xfer, error) {
 	if !q.client.cookie {
 		if err := q.login(); err != nil {
-			return nil, err
+			return 0, nil, err
 		}
 	}
 
@@ -225,23 +226,24 @@ func (q *Qbit) GetXfers() ([]*Xfer, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, q.config.URL+"api/v2/torrents/info", nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating info request: %w", err)
+		return 0, nil, fmt.Errorf("creating info request: %w", err)
 	}
 
 	req.URL.RawQuery = "filter=all"
 
 	resp, err := q.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("info req failed: %w", err)
+		return 0, nil, fmt.Errorf("info req failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	xfers := []*Xfer{}
+	counter := datacounter.NewReaderCounter(resp.Body)
 
-	decoder := json.NewDecoder(resp.Body)
+	decoder := json.NewDecoder(counter)
 	if err := decoder.Decode(&xfers); err != nil {
-		return nil, fmt.Errorf("decoding body failed: %w", err)
+		return int64(counter.Count()), nil, fmt.Errorf("decoding body failed: %w", err)
 	}
 
-	return xfers, nil
+	return int64(counter.Count()), xfers, nil
 }
