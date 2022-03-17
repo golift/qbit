@@ -242,6 +242,7 @@ func (q *Qbit) GetXfers() (int64, []*Xfer, error) {
 
 	decoder := json.NewDecoder(counter)
 	if err := decoder.Decode(&xfers); err != nil {
+		q.client.cookie = false
 		return int64(counter.Count()), nil, fmt.Errorf("decoding body failed: %w", err)
 	}
 
