@@ -101,14 +101,14 @@ type Xfer struct {
 }
 
 func NewNoAuth(config *Config) (*Qbit, error) {
-	return newConfig(config, false)
+	return newConfig(context.TODO(), config, false)
 }
 
-func New(config *Config) (*Qbit, error) {
-	return newConfig(config, true)
+func New(ctx context.Context, config *Config) (*Qbit, error) {
+	return newConfig(ctx, config, true)
 }
 
-func newConfig(config *Config, login bool) (*Qbit, error) {
+func newConfig(ctx context.Context, config *Config, login bool) (*Qbit, error) {
 	// The cookie jar is used to auth Qbit.
 	jar, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
 	if err != nil {
@@ -144,14 +144,14 @@ func newConfig(config *Config, login bool) (*Qbit, error) {
 		return qbit, nil
 	}
 
-	return qbit, qbit.login()
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	return qbit, qbit.login(ctx)
 }
 
 // login is called once from New().
-func (q *Qbit) login() error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-
+func (q *Qbit) login(ctx context.Context) error {
 	post := strings.NewReader("username=" + q.config.User + "&password=" + q.config.Pass)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, q.config.URL+"api/v2/auth/login", post)
@@ -202,7 +202,7 @@ func (q *Qbit) GetXfers() ([]*Xfer, error) {
 // GetXfersContext returns data about all transfers/downloads in the Qbit client.
 func (q *Qbit) GetXfersContext(ctx context.Context) ([]*Xfer, error) {
 	if !q.client.cookie {
-		if err := q.login(); err != nil {
+		if err := q.login(ctx); err != nil {
 			return nil, err
 		}
 	}
