@@ -21,25 +21,24 @@ import (
 )
 
 func main() {
-	c := &qbit.Config{
+	config := &qbit.Config{
 		URL:     "http://localhost:8080",
 		User:    "admin",
 		Pass:    "qbitpassword",
-		Timeout: qbit.Duration{15 * time.Second},
 	}
 
-	q, err := qbit.New(c)
+	qbit, err := qbit.New(config)
 	if err != nil {
 		log.Fatalln("[ERROR]", err)
 	}
 
-	_, xfers, err := q.GetXfers()
+	xfers, err := qbit.GetXfers()
 	if err != nil {
 		log.Fatalln("[ERROR]", err)
 	}
 
-	for _, x := range xfers {
-		log.Println(x.Name, x.Progress)
+	for _, xfer := range xfers {
+		log.Println(xfer.Name, xfer.Progress)
 	}
 }
 ```
