@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"strings"
@@ -167,7 +167,7 @@ func (q *Qbit) login(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Ok.") {
 		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
@@ -223,6 +223,7 @@ func (q *Qbit) GetXfersContext(ctx context.Context) ([]*Xfer, error) {
 	xfers := []*Xfer{}
 	if err := json.NewDecoder(resp.Body).Decode(&xfers); err != nil {
 		q.client.cookie = false
+
 		return nil, fmt.Errorf("decoding body failed: %w", err)
 	}
 
