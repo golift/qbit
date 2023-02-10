@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"time"
 
@@ -152,7 +153,10 @@ func newConfig(ctx context.Context, config *Config, login bool) (*Qbit, error) {
 
 // login is called once from New().
 func (q *Qbit) login(ctx context.Context) error {
-	post := strings.NewReader("username=" + q.config.User + "&password=" + q.config.Pass)
+	params := make(url.Values)
+	params.Add("username", q.config.User)
+	params.Add("password", q.config.Pass)
+	post := strings.NewReader(params.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, q.config.URL+"api/v2/auth/login", post)
 	if err != nil {
