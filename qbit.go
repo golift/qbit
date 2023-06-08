@@ -8,9 +8,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"time"
 
@@ -145,7 +146,10 @@ func newConfig(ctx context.Context, config *Config, login bool) (*Qbit, error) {
 
 // login is called once from New().
 func (q *Qbit) login(ctx context.Context) error {
-	post := strings.NewReader("username=" + q.config.User + "&password=" + q.config.Pass)
+	params := make(url.Values)
+	params.Add("username", q.config.User)
+	params.Add("password", q.config.Pass)
+	post := strings.NewReader(params.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, q.config.URL+"api/v2/auth/login", post)
 	if err != nil {
@@ -160,7 +164,7 @@ func (q *Qbit) login(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Ok.") {
 		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
@@ -213,6 +217,7 @@ func (q *Qbit) getReq(ctx context.Context, path string, into interface{}, loop b
 		}
 
 		return fmt.Errorf("%s: %w", resp.Status, err)
+
 	}
 
 	return nil
