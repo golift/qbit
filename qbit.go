@@ -217,7 +217,6 @@ func (q *Qbit) getReq(ctx context.Context, path string, into interface{}, loop b
 		}
 
 		return fmt.Errorf("%s: %w", resp.Status, err)
-
 	}
 
 	return nil
