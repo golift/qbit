@@ -42,13 +42,8 @@ type Config struct {
 // Qbit is what you get in return for passing in a valid Config to New().
 type Qbit struct {
 	config *Config
-	client *client
-}
-
-type client struct {
 	auth   string
-	cookie bool
-	*http.Client
+	client *http.Client
 }
 
 // Xfer is a transfer from the torrents/info endpoint.
@@ -135,10 +130,8 @@ func newConfig(ctx context.Context, config *Config, login bool) (*Qbit, error) {
 
 	qbit := &Qbit{
 		config: config,
-		client: &client{
-			auth:   auth,
-			Client: httpClient,
-		},
+		auth:   auth,
+		client: httpClient,
 	}
 
 	if !login {
@@ -177,25 +170,7 @@ func (q *Qbit) login(ctx context.Context) error {
 		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
 	}
 
-	q.client.cookie = true
-
 	return nil
-}
-
-// Do allows overriding the http request parameters in aggregate.
-func (c *client) Do(req *http.Request) (*http.Response, error) {
-	if c.auth != "" {
-		req.Header.Set("Authorization", c.auth)
-	}
-
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.Client.Do(req)
-	if err != nil {
-		return resp, fmt.Errorf("making request: %w", err)
-	}
-
-	return resp, nil
 }
 
 // GetXfers returns data about all transfers/downloads in the Qbit client.
@@ -205,31 +180,44 @@ func (q *Qbit) GetXfers() ([]*Xfer, error) {
 
 // GetXfersContext returns data about all transfers/downloads in the Qbit client.
 func (q *Qbit) GetXfersContext(ctx context.Context) ([]*Xfer, error) {
-	if !q.client.cookie {
-		if err := q.login(ctx); err != nil {
-			return nil, err
-		}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, q.config.URL+"api/v2/torrents/info", nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating info request: %w", err)
-	}
-
-	req.URL.RawQuery = "filter=all"
-
-	resp, err := q.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("info req failed: %w", err)
-	}
-	defer resp.Body.Close()
-
 	xfers := []*Xfer{}
-	if err := json.NewDecoder(resp.Body).Decode(&xfers); err != nil {
-		q.client.cookie = false
-
-		return nil, fmt.Errorf("decoding body failed: %w", err)
+	if err := q.getReq(ctx, "api/v2/torrents/info", &xfers, true); err != nil {
+		return nil, err
 	}
 
 	return xfers, nil
+}
+
+func (q *Qbit) getReq(ctx context.Context, path string, into interface{}, loop bool) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, q.config.URL+path, nil)
+	if err != nil {
+		return fmt.Errorf("creating info request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/json")
+	req.URL.RawQuery = "filter=all"
+
+	if q.auth != "" {
+		req.Header.Set("Authorization", q.auth)
+	}
+
+	resp, err := q.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("req failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
+		if err := q.login(ctx); err != nil {
+			return err
+		}
+
+		if loop {
+			return q.getReq(ctx, path, into, false)
+		}
+
+		return fmt.Errorf("%s: %w", resp.Status, err)
+	}
+
+	return nil
 }
