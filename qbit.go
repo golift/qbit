@@ -4,6 +4,7 @@
 package qbit
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -31,12 +32,12 @@ var (
 // Config is the input data needed to return a Qbit struct.
 // This is setup to allow you to easily pass this data in from a config file.
 type Config struct {
-	URL      string       `json:"url" toml:"url" xml:"url" yaml:"url"`
-	User     string       `json:"user" toml:"user" xml:"user" yaml:"user"`
-	Pass     string       `json:"pass" toml:"pass" xml:"pass" yaml:"pass"`
+	URL      string       `json:"url"       toml:"url"       xml:"url"       yaml:"url"`
+	User     string       `json:"user"      toml:"user"      xml:"user"      yaml:"user"`
+	Pass     string       `json:"pass"      toml:"pass"      xml:"pass"      yaml:"pass"`
 	HTTPPass string       `json:"http_pass" toml:"http_pass" xml:"http_pass" yaml:"http_pass"`
 	HTTPUser string       `json:"http_user" toml:"http_user" xml:"http_user" yaml:"http_user"`
-	Client   *http.Client `json:"-" toml:"-" xml:"-" yaml:"-"`
+	Client   *http.Client `json:"-"         toml:"-"         xml:"-"         yaml:"-"`
 }
 
 // Qbit is what you get in return for passing in a valid Config to New().
@@ -94,6 +95,12 @@ type Xfer struct {
 	Uploaded          int64   `json:"uploaded"`
 	UploadedSession   int64   `json:"uploaded_session"`
 	Upspeed           int64   `json:"upspeed"`
+}
+
+// Category represents a torrent category in Qbit.
+type Category struct {
+	Name     string `json:"name"`
+	SavePath string `json:"savePath"`
 }
 
 func NewNoAuth(config *Config) (*Qbit, error) {
@@ -173,6 +180,40 @@ func (q *Qbit) login(ctx context.Context) error {
 	return nil
 }
 
+// SetTorrentCategory updates the category for 1 or more torrents.
+func (q *Qbit) SetTorrentCategory(category string, torrentHashes ...string) error {
+	return q.SetTorrentCategoryContext(context.Background(), category, torrentHashes...)
+}
+
+// SetTorrentCategoryContext updates the category for 1 or more torrents.
+func (q *Qbit) SetTorrentCategoryContext(ctx context.Context, category string, torrentHashes ...string) error {
+	values := url.Values{}
+	values.Set("category", category)
+	values.Set("hashes", strings.Join(torrentHashes, "|"))
+
+	var into map[string]interface{}
+	if err := q.postReq(ctx, "api/v2/torrents/setCategory", values, into); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// GetCategories returns all the categories in Qbit.
+func (q *Qbit) GetCategories() (map[string]*Category, error) {
+	return q.GetCategoriesContext(context.Background())
+}
+
+// GetCategoriesContext returns all the categories in Qbit.
+func (q *Qbit) GetCategoriesContext(ctx context.Context) (map[string]*Category, error) {
+	cats := map[string]*Category{}
+	if err := q.getReq(ctx, "api/v2/torrents/categories", &cats); err != nil {
+		return nil, err
+	}
+
+	return cats, nil
+}
+
 // GetXfers returns data about all transfers/downloads in the Qbit client.
 func (q *Qbit) GetXfers() ([]*Xfer, error) {
 	return q.GetXfersContext(context.Background())
@@ -181,21 +222,41 @@ func (q *Qbit) GetXfers() ([]*Xfer, error) {
 // GetXfersContext returns data about all transfers/downloads in the Qbit client.
 func (q *Qbit) GetXfersContext(ctx context.Context) ([]*Xfer, error) {
 	xfers := []*Xfer{}
-	if err := q.getReq(ctx, "api/v2/torrents/info", &xfers, true); err != nil {
+	if err := q.getReq(ctx, "api/v2/torrents/info", &xfers); err != nil {
 		return nil, err
 	}
 
 	return xfers, nil
 }
 
-func (q *Qbit) getReq(ctx context.Context, path string, into interface{}, loop bool) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, q.config.URL+path, nil)
+func (q *Qbit) getReq(ctx context.Context, path string, into interface{}) error {
+	return q.req(ctx, http.MethodGet, q.config.URL+path, nil, into, true)
+}
+
+func (q *Qbit) postReq(ctx context.Context, path string, values url.Values, into interface{}) error {
+	return q.req(ctx, http.MethodPost, q.config.URL+path, values, into, true)
+}
+
+func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into interface{}, loop bool) error {
+	var body io.Reader
+
+	if method == http.MethodPost {
+		body = bytes.NewBufferString(val.Encode())
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, uri, body)
 	if err != nil {
-		return fmt.Errorf("creating info request: %w", err)
+		return fmt.Errorf("creating '%s' request: %w", method, err)
+	}
+
+	if method == http.MethodPost {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		val.Set("filter", "all")
+		req.URL.RawQuery = val.Encode()
 	}
 
 	req.Header.Set("Accept", "application/json")
-	req.URL.RawQuery = "filter=all"
 
 	if q.auth != "" {
 		req.Header.Set("Authorization", q.auth)
@@ -203,7 +264,7 @@ func (q *Qbit) getReq(ctx context.Context, path string, into interface{}, loop b
 
 	resp, err := q.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("req failed: %w", err)
+		return fmt.Errorf("%s failed: %w", method, err)
 	}
 	defer resp.Body.Close()
 
@@ -212,8 +273,8 @@ func (q *Qbit) getReq(ctx context.Context, path string, into interface{}, loop b
 			return err
 		}
 
-		if loop {
-			return q.getReq(ctx, path, into, false)
+		if loop { // try again after logging in.
+			return q.req(ctx, method, uri, val, into, false)
 		}
 
 		return fmt.Errorf("%s: %w", resp.Status, err)
