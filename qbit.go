@@ -240,6 +240,10 @@ func (q *Qbit) postReq(ctx context.Context, path string, values url.Values, into
 func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into interface{}, loop bool) error {
 	var body io.Reader
 
+	if val == nil {
+		val = url.Values{}
+	}
+
 	if method == http.MethodPost {
 		body = bytes.NewBufferString(val.Encode())
 	}
