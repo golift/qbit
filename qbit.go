@@ -79,6 +79,7 @@ type Xfer struct {
 	Ratio             float64 `json:"ratio"`
 	RatioLimit        float64 `json:"ratio_limit"`
 	SavePath          string  `json:"save_path"`
+	RootPath          string  `json:"root_path"`
 	SeedingTime       int64   `json:"seeding_time"`
 	SeedingTimeLimit  int64   `json:"seeding_time_limit"`
 	SeenComplete      int64   `json:"seen_complete"`
