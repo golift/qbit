@@ -33,8 +33,8 @@ var (
 // This is setup to allow you to easily pass this data in from a config file.
 type Config struct {
 	URL      string       `json:"url"       toml:"url"       xml:"url"       yaml:"url"`
-	User     string       `json:"user"      toml:"user"      xml:"user"      yaml:"user"`
-	Pass     string       `json:"pass"      toml:"pass"      xml:"pass"      yaml:"pass"`
+	User     string       `json:"username"  toml:"user"      xml:"user"      yaml:"user"`
+	Pass     string       `json:"password"  toml:"pass"      xml:"pass"      yaml:"pass"`
 	HTTPPass string       `json:"http_pass" toml:"http_pass" xml:"http_pass" yaml:"http_pass"`
 	HTTPUser string       `json:"http_user" toml:"http_user" xml:"http_user" yaml:"http_user"`
 	Client   *http.Client `json:"-"         toml:"-"         xml:"-"         yaml:"-"`
