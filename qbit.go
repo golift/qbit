@@ -174,6 +174,13 @@ func (q *Qbit) login(ctx context.Context) error {
 
 	body, _ := io.ReadAll(resp.Body)
 
+	// qBittorrent 5.2.0+ returns 204 No Content (with an empty body) on a
+	// successful login, instead of the previous 200 OK with "Ok." in the
+	// body. Accept 204 as success without requiring the old body match.
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Ok.") {
 		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
 	}
