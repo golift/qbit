@@ -1,5 +1,5 @@
 module golift.io/qbit
 
-go 1.17
+go 1.25.0
 
-require golang.org/x/net v0.27.0
+require golang.org/x/net v0.58.0
