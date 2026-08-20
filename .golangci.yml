@@ -1,19 +1,52 @@
+version: '2'
 linters:
-  enable-all: true
+  default: all
   disable:
-    # deprecated
-    - maligned
-    - scopelint
-    - interfacer
-    - golint
-    - exhaustivestruct
-    - nosnakecase
-    - structcheck
-    - deadcode
-    - varcheck
-    - ifshort
-    # unused
+    - dupl
     - exhaustruct
+    - exhaustruct_v5
+    - musttag
+    - nlreturn
     - tagliatelle
-run:
-  timeout: 3m
+    - noinlineerr
+    - wsl
+    - wsl_v5
+    - funcorder
+    - gomodguard
+  settings:
+    depguard:
+      rules:
+        main:
+          files:
+            - $all
+          allow:
+            - $gostd
+            - github.com/stretchr/testify
+            - golift.io/qbit
+            - golang.org/x/net
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      - linters:
+          - err113
+          - forcetypeassert
+          - funlen
+          - gochecknoglobals
+          - lll
+          - goconst
+        path: (.+)_test\.go
+    paths:
+      - test
+      - queue
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
