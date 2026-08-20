@@ -194,11 +194,16 @@ func (q *Qbit) login(ctx context.Context) error {
 		return fmt.Errorf("reading login response: %w", err)
 	}
 
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Ok.") {
-		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
+	// qBittorrent 5.2+ returns 204 No Content on success. Older versions return 200 with "Ok.".
+	if resp.StatusCode == http.StatusNoContent {
+		return nil
 	}
 
-	return nil
+	if resp.StatusCode == http.StatusOK && strings.Contains(string(body), "Ok.") {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
 }
 
 // SetTorrentCategory updates the category for 1 or more torrents.
@@ -309,11 +314,15 @@ func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into
 		}
 	}
 
-	if resp.StatusCode != http.StatusOK {
+	if !isSuccessStatus(resp.StatusCode) {
 		return fmt.Errorf("%s: %s: %s", method, resp.Status, string(respBody)) //nolint:err113
 	}
 
 	return decodeBody(resp.Status, respBody, into)
+}
+
+func isSuccessStatus(status int) bool {
+	return status == http.StatusOK || status == http.StatusNoContent
 }
 
 func isUnauthorized(status int) bool {

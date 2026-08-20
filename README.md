@@ -12,6 +12,9 @@ listing categories, and setting a torrent category. If you need more of the API,
 
 This library is used by [Notifiarr](https://github.com/Notifiarr/notifiarr/).
 
+qBittorrent 5.2+ returns HTTP 204 on login and other empty WebAPI responses.
+Older 200/`Ok.` logins still work.
+
 ## Install
 
 ```shell

@@ -48,11 +48,45 @@ func TestNewLogin(t *testing.T) {
 	require.NotNil(t, client)
 }
 
+func TestNewLoginNoContent(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "/api/v2/auth/login", req.URL.Path)
+		http.SetCookie(writer, &http.Cookie{Name: "QBT_SID_8080", Value: "cookie"})
+		writer.WriteHeader(http.StatusNoContent)
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{
+		URL:  server.URL,
+		User: "admin",
+		Pass: "secret",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, client)
+}
+
 func TestNewLoginFailed(t *testing.T) {
 	t.Parallel()
 
 	server := newServer(t, func(writer http.ResponseWriter, _ *http.Request) {
 		writer.WriteHeader(http.StatusForbidden)
+		_, _ = writer.Write([]byte("Fails."))
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{
+		URL:  server.URL,
+		User: "admin",
+		Pass: "wrong",
+	})
+	require.ErrorIs(t, err, qbit.ErrLoginFailed)
+	assert.Nil(t, client)
+}
+
+func TestNewLoginFailsBody(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(writer http.ResponseWriter, _ *http.Request) {
 		_, _ = writer.Write([]byte("Fails."))
 	})
 
@@ -101,7 +135,7 @@ func TestGetXfersRelogin(t *testing.T) {
 		switch req.URL.Path {
 		case "/api/v2/auth/login":
 			loggedIn = true
-			_, _ = writer.Write([]byte("Ok."))
+			writer.WriteHeader(http.StatusNoContent)
 		case "/api/v2/torrents/info":
 			if !loggedIn {
 				writer.WriteHeader(http.StatusForbidden)
@@ -163,7 +197,8 @@ func TestSetTorrentCategory(t *testing.T) {
 			require.NoError(t, err)
 			assert.Contains(t, string(body), "category=movies")
 			assert.Contains(t, string(body), "hashes=aaa%7Cbbb")
-			// qBittorrent returns an empty body on success.
+			// qBittorrent 5.2+ returns 204 with an empty body on success.
+			writer.WriteHeader(http.StatusNoContent)
 		default:
 			t.Errorf("unexpected path: %s", req.URL.Path)
 		}
