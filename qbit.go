@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,12 +22,12 @@ import (
 
 // Package defaults.
 const (
-	DefaultTimeout = 1 * time.Minute
+	DefaultTimeout = time.Minute
 )
 
 // Custom errors returned by this package.
 var (
-	ErrLoginFailed = fmt.Errorf("authentication failed")
+	ErrLoginFailed = errors.New("authentication failed")
 )
 
 // Config is the input data needed to return a Qbit struct.
@@ -104,10 +105,13 @@ type Category struct {
 	SavePath string `json:"savePath"`
 }
 
+// NewNoAuth returns a Qbit client without logging in.
+// The client logs in automatically on the first request that requires it.
 func NewNoAuth(config *Config) (*Qbit, error) {
-	return newConfig(context.TODO(), config, false)
+	return newConfig(context.Background(), config, false)
 }
 
+// New returns a Qbit client and logs in immediately.
 func New(ctx context.Context, config *Config) (*Qbit, error) {
 	return newConfig(ctx, config, true)
 }
@@ -131,7 +135,7 @@ func newConfig(ctx context.Context, config *Config, login bool) (*Qbit, error) {
 
 	httpClient := config.Client
 	if httpClient == nil {
-		httpClient = &http.Client{}
+		httpClient = &http.Client{Timeout: DefaultTimeout}
 	}
 
 	httpClient.Jar = jar
@@ -146,33 +150,49 @@ func newConfig(ctx context.Context, config *Config, login bool) (*Qbit, error) {
 		return qbit, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 
-	return qbit, qbit.login(ctx)
+	if err := qbit.login(ctx); err != nil {
+		return nil, err
+	}
+
+	return qbit, nil
 }
 
-// login is called once from New().
+func (q *Qbit) setAuth(req *http.Request) {
+	if q.auth != "" {
+		req.Header.Set("Authorization", q.auth)
+	}
+}
+
+// login is called from New() and again if a request is rejected.
 func (q *Qbit) login(ctx context.Context) error {
 	params := make(url.Values)
 	params.Add("username", q.config.User)
 	params.Add("password", q.config.Pass)
-	post := strings.NewReader(params.Encode())
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, q.config.URL+"api/v2/auth/login", post)
+	loginURL := q.config.URL + "api/v2/auth/login"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, loginURL, strings.NewReader(params.Encode()))
 	if err != nil {
 		return fmt.Errorf("creating login request: %w", err)
 	}
 
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	q.setAuth(req)
 
 	resp, err := q.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("login failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading login response: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Ok.") {
 		return fmt.Errorf("%w: %s: %s: %s", ErrLoginFailed, resp.Status, req.URL, string(body))
@@ -192,12 +212,7 @@ func (q *Qbit) SetTorrentCategoryContext(ctx context.Context, category string, t
 	values.Set("category", category)
 	values.Set("hashes", strings.Join(torrentHashes, "|"))
 
-	var into map[string]interface{}
-	if err := q.postReq(ctx, "api/v2/torrents/setCategory", values, into); err != nil {
-		return err
-	}
-
-	return nil
+	return q.postReq(ctx, "api/v2/torrents/setCategory", values, nil)
 }
 
 // GetCategories returns all the categories in Qbit.
@@ -230,15 +245,15 @@ func (q *Qbit) GetXfersContext(ctx context.Context) ([]*Xfer, error) {
 	return xfers, nil
 }
 
-func (q *Qbit) getReq(ctx context.Context, path string, into interface{}) error {
+func (q *Qbit) getReq(ctx context.Context, path string, into any) error {
 	return q.req(ctx, http.MethodGet, q.config.URL+path, nil, into, true)
 }
 
-func (q *Qbit) postReq(ctx context.Context, path string, values url.Values, into interface{}) error {
+func (q *Qbit) postReq(ctx context.Context, path string, values url.Values, into any) error {
 	return q.req(ctx, http.MethodPost, q.config.URL+path, values, into, true)
 }
 
-func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into interface{}, loop bool) error {
+func (q *Qbit) newRequest(ctx context.Context, method, uri string, val url.Values) (*http.Request, error) {
 	var body io.Reader
 
 	if val == nil {
@@ -251,29 +266,40 @@ func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into
 
 	req, err := http.NewRequestWithContext(ctx, method, uri, body)
 	if err != nil {
-		return fmt.Errorf("creating '%s' request: %w", method, err)
+		return nil, fmt.Errorf("creating '%s' request: %w", method, err)
 	}
 
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
-		val.Set("filter", "all")
 		req.URL.RawQuery = val.Encode()
 	}
 
 	req.Header.Set("Accept", "application/json")
+	q.setAuth(req)
 
-	if q.auth != "" {
-		req.Header.Set("Authorization", q.auth)
+	return req, nil
+}
+
+func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into any, loop bool) error {
+	req, err := q.newRequest(ctx, method, uri, val)
+	if err != nil {
+		return err
 	}
 
 	resp, err := q.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("%s failed: %w", method, err)
 	}
-	defer resp.Body.Close()
 
-	if err := json.NewDecoder(resp.Body).Decode(into); err != nil {
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading '%s' response: %w", method, err)
+	}
+
+	if isUnauthorized(resp.StatusCode) {
 		if err := q.login(ctx); err != nil {
 			return err
 		}
@@ -281,8 +307,26 @@ func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into
 		if loop { // try again after logging in.
 			return q.req(ctx, method, uri, val, into, false)
 		}
+	}
 
-		return fmt.Errorf("%s: %w", resp.Status, err)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s: %s: %s", method, resp.Status, string(respBody)) //nolint:err113
+	}
+
+	return decodeBody(resp.Status, respBody, into)
+}
+
+func isUnauthorized(status int) bool {
+	return status == http.StatusForbidden || status == http.StatusUnauthorized
+}
+
+func decodeBody(status string, body []byte, into any) error {
+	if into == nil || len(bytes.TrimSpace(body)) == 0 {
+		return nil
+	}
+
+	if err := json.Unmarshal(body, into); err != nil {
+		return fmt.Errorf("%s: %w", status, err)
 	}
 
 	return nil
