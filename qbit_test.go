@@ -159,6 +159,32 @@ func TestGetXfersRelogin(t *testing.T) {
 	assert.True(t, loggedIn)
 }
 
+func TestGetXfersStillForbidden(t *testing.T) {
+	t.Parallel()
+
+	logins := 0
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			logins++
+			writer.WriteHeader(http.StatusNoContent)
+		case "/api/v2/torrents/info":
+			writer.WriteHeader(http.StatusForbidden)
+			_, _ = writer.Write([]byte("Forbidden"))
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.NewNoAuth(&qbit.Config{URL: server.URL, User: "admin", Pass: "secret"})
+	require.NoError(t, err)
+
+	xfers, err := client.GetXfers()
+	require.Error(t, err)
+	assert.Nil(t, xfers)
+	assert.Equal(t, 1, logins)
+}
+
 func TestGetCategories(t *testing.T) {
 	t.Parallel()
 

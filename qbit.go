@@ -304,14 +304,12 @@ func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into
 		return fmt.Errorf("reading '%s' response: %w", method, err)
 	}
 
-	if isUnauthorized(resp.StatusCode) {
+	if isUnauthorized(resp.StatusCode) && loop {
 		if err := q.login(ctx); err != nil {
 			return err
 		}
 
-		if loop { // try again after logging in.
-			return q.req(ctx, method, uri, val, into, false)
-		}
+		return q.req(ctx, method, uri, val, into, false)
 	}
 
 	if !isSuccessStatus(resp.StatusCode) {
