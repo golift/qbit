@@ -23,6 +23,7 @@ import (
 // Package defaults.
 const (
 	DefaultTimeout = time.Minute
+	maxErrBody     = 4096
 )
 
 // Custom errors returned by this package.
@@ -299,12 +300,9 @@ func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into
 
 	defer func() { _ = resp.Body.Close() }()
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("reading '%s' response: %w", method, err)
-	}
-
 	if isUnauthorized(resp.StatusCode) && loop {
+		_, _ = io.Copy(io.Discard, resp.Body)
+
 		if err := q.login(ctx); err != nil {
 			return err
 		}
@@ -312,11 +310,34 @@ func (q *Qbit) req(ctx context.Context, method, uri string, val url.Values, into
 		return q.req(ctx, method, uri, val, into, false)
 	}
 
+	return readResponse(method, resp, into)
+}
+
+func readResponse(method string, resp *http.Response, into any) error {
 	if !isSuccessStatus(resp.StatusCode) {
-		return fmt.Errorf("%s: %s: %s", method, resp.Status, string(respBody)) //nolint:err113
+		return fmt.Errorf("%s: %s: %s", method, resp.Status, readErrBody(resp.Body)) //nolint:err113
 	}
 
-	return decodeBody(resp.Status, respBody, into)
+	if into == nil || resp.StatusCode == http.StatusNoContent {
+		_, _ = io.Copy(io.Discard, resp.Body)
+
+		return nil
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(into); err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%s: %w", resp.Status, err)
+	}
+
+	return nil
+}
+
+func readErrBody(body io.Reader) string {
+	buf, err := io.ReadAll(io.LimitReader(body, maxErrBody))
+	if err != nil {
+		return err.Error()
+	}
+
+	return string(buf)
 }
 
 func isSuccessStatus(status int) bool {
@@ -325,16 +346,4 @@ func isSuccessStatus(status int) bool {
 
 func isUnauthorized(status int) bool {
 	return status == http.StatusForbidden || status == http.StatusUnauthorized
-}
-
-func decodeBody(status string, body []byte, into any) error {
-	if into == nil || len(bytes.TrimSpace(body)) == 0 {
-		return nil
-	}
-
-	if err := json.Unmarshal(body, into); err != nil {
-		return fmt.Errorf("%s: %w", status, err)
-	}
-
-	return nil
 }
