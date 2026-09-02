@@ -6,7 +6,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -208,6 +211,134 @@ func TestGetCategories(t *testing.T) {
 	require.Contains(t, cats, "tv")
 	assert.Equal(t, "tv", cats["tv"].Name)
 	assert.Equal(t, "/data/tv", cats["tv"].SavePath)
+}
+
+func TestSpeedLimitsMode(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/speedLimitsMode":
+			assert.Equal(t, http.MethodGet, req.Method)
+			_, _ = writer.Write([]byte(`1`))
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+
+	on, err := client.SpeedLimitsMode()
+	require.NoError(t, err)
+	assert.True(t, on)
+}
+
+func TestToggleSpeedLimitsMode(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/toggleSpeedLimitsMode":
+			assert.Equal(t, http.MethodPost, req.Method)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+	require.NoError(t, client.ToggleSpeedLimitsMode())
+}
+
+func TestSetSpeedLimitsMode(t *testing.T) {
+	t.Parallel()
+
+	toggles := 0
+	mode := 0
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/speedLimitsMode":
+			assert.Equal(t, http.MethodGet, req.Method)
+			_, _ = writer.Write([]byte(strconv.Itoa(mode)))
+		case "/api/v2/transfer/toggleSpeedLimitsMode":
+			assert.Equal(t, http.MethodPost, req.Method)
+			toggles++
+			mode = 1 - mode
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+	require.NoError(t, client.SetSpeedLimitsMode(false))
+	assert.Equal(t, 0, toggles)
+	require.NoError(t, client.SetSpeedLimitsMode(true))
+	assert.Equal(t, 1, toggles)
+	require.NoError(t, client.SetSpeedLimitsModeContext(context.Background(), true))
+	assert.Equal(t, 1, toggles)
+}
+
+func TestSetSpeedLimitsModeConcurrent(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu      sync.Mutex
+		mode    int
+		toggles int
+	)
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/speedLimitsMode":
+			mu.Lock()
+			cur := mode
+			mu.Unlock()
+			time.Sleep(time.Millisecond)
+			_, _ = writer.Write([]byte(strconv.Itoa(cur)))
+		case "/api/v2/transfer/toggleSpeedLimitsMode":
+			mu.Lock()
+			toggles++
+			mode = 1 - mode
+			mu.Unlock()
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+
+	const callers = 20
+
+	var wg sync.WaitGroup
+	wg.Add(callers)
+
+	for range callers {
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, client.SetSpeedLimitsMode(true))
+		}()
+	}
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, toggles)
+	assert.Equal(t, 1, mode)
 }
 
 func TestSetTorrentCategory(t *testing.T) {
