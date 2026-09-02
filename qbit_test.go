@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -284,6 +286,59 @@ func TestSetSpeedLimitsMode(t *testing.T) {
 	assert.Equal(t, 1, toggles)
 	require.NoError(t, client.SetSpeedLimitsModeContext(context.Background(), true))
 	assert.Equal(t, 1, toggles)
+}
+
+func TestSetSpeedLimitsModeConcurrent(t *testing.T) {
+	t.Parallel()
+
+	var (
+		mu      sync.Mutex
+		mode    int
+		toggles int
+	)
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/speedLimitsMode":
+			mu.Lock()
+			cur := mode
+			mu.Unlock()
+			time.Sleep(time.Millisecond)
+			_, _ = writer.Write([]byte(strconv.Itoa(cur)))
+		case "/api/v2/transfer/toggleSpeedLimitsMode":
+			mu.Lock()
+			toggles++
+			mode = 1 - mode
+			mu.Unlock()
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+
+	const callers = 20
+
+	var wg sync.WaitGroup
+	wg.Add(callers)
+
+	for range callers {
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, client.SetSpeedLimitsMode(true))
+		}()
+	}
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 1, toggles)
+	assert.Equal(t, 1, mode)
 }
 
 func TestSetTorrentCategory(t *testing.T) {

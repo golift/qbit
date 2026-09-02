@@ -15,6 +15,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/publicsuffix"
@@ -44,9 +45,10 @@ type Config struct {
 
 // Qbit is what you get in return for passing in a valid Config to New().
 type Qbit struct {
-	config *Config
-	auth   string
-	client *http.Client
+	speedLimits sync.Mutex
+	config      *Config
+	auth        string
+	client      *http.Client
 }
 
 // Xfer is a transfer from the torrents/info endpoint.
@@ -259,6 +261,13 @@ func (q *Qbit) ToggleSpeedLimitsMode() error {
 
 // ToggleSpeedLimitsModeContext toggles alternative (turtle) speed limits on or off.
 func (q *Qbit) ToggleSpeedLimitsModeContext(ctx context.Context) error {
+	q.speedLimits.Lock()
+	defer q.speedLimits.Unlock()
+
+	return q.toggleSpeedLimitsMode(ctx)
+}
+
+func (q *Qbit) toggleSpeedLimitsMode(ctx context.Context) error {
 	return q.postReq(ctx, "api/v2/transfer/toggleSpeedLimitsMode", nil, nil)
 }
 
@@ -269,7 +278,12 @@ func (q *Qbit) SetSpeedLimitsMode(enabled bool) error {
 }
 
 // SetSpeedLimitsModeContext enables or disables alternative (turtle) speed limits.
+// Get-then-toggle is serialized with ToggleSpeedLimitsMode so concurrent setters cannot both
+// read the same mode and flip it twice, leaving qBittorrent in the opposite state.
 func (q *Qbit) SetSpeedLimitsModeContext(ctx context.Context, enabled bool) error {
+	q.speedLimits.Lock()
+	defer q.speedLimits.Unlock()
+
 	current, err := q.SpeedLimitsModeContext(ctx)
 	if err != nil {
 		return err
@@ -279,7 +293,7 @@ func (q *Qbit) SetSpeedLimitsModeContext(ctx context.Context, enabled bool) erro
 		return nil
 	}
 
-	return q.ToggleSpeedLimitsModeContext(ctx)
+	return q.toggleSpeedLimitsMode(ctx)
 }
 
 // GetXfers returns data about all transfers/downloads in the Qbit client.
