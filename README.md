@@ -7,7 +7,8 @@
 Go library to interact with the [qBittorrent](https://github.com/qbittorrent/qBittorrent) Web API.
 
 This is not a full client. It covers login (including HTTP basic auth), listing transfers,
-listing categories, and setting a torrent category. If you need more of the API, please
+listing categories, setting a torrent category, and toggling alternative (turtle) speed
+limits. If you need more of the API, please
 [open an issue](https://github.com/golift/qbit/issues/new) or a pull request.
 
 This library is used by [Notifiarr](https://github.com/Notifiarr/notifiarr/).
