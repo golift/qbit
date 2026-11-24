@@ -236,6 +236,51 @@ func (q *Qbit) GetCategoriesContext(ctx context.Context) (map[string]*Category, 
 	return cats, nil
 }
 
+// SpeedLimitsMode returns true when alternative (turtle) speed limits are enabled.
+func (q *Qbit) SpeedLimitsMode() (bool, error) {
+	return q.SpeedLimitsModeContext(context.Background())
+}
+
+// SpeedLimitsModeContext returns true when alternative (turtle) speed limits are enabled.
+// qBittorrent returns a JSON number: 0 (regular limits) or 1 (alternative limits).
+func (q *Qbit) SpeedLimitsModeContext(ctx context.Context) (bool, error) {
+	var mode int
+	if err := q.getReq(ctx, "api/v2/transfer/speedLimitsMode", &mode); err != nil {
+		return false, err
+	}
+
+	return mode != 0, nil
+}
+
+// ToggleSpeedLimitsMode toggles alternative (turtle) speed limits on or off.
+func (q *Qbit) ToggleSpeedLimitsMode() error {
+	return q.ToggleSpeedLimitsModeContext(context.Background())
+}
+
+// ToggleSpeedLimitsModeContext toggles alternative (turtle) speed limits on or off.
+func (q *Qbit) ToggleSpeedLimitsModeContext(ctx context.Context) error {
+	return q.postReq(ctx, "api/v2/transfer/toggleSpeedLimitsMode", nil, nil)
+}
+
+// SetSpeedLimitsMode enables or disables alternative (turtle) speed limits.
+// Requires qBittorrent 4.5+ (WebAPI setSpeedLimitsMode).
+func (q *Qbit) SetSpeedLimitsMode(enabled bool) error {
+	return q.SetSpeedLimitsModeContext(context.Background(), enabled)
+}
+
+// SetSpeedLimitsModeContext enables or disables alternative (turtle) speed limits.
+// mode 0 is regular limits; any non-zero value enables alternative limits.
+func (q *Qbit) SetSpeedLimitsModeContext(ctx context.Context, enabled bool) error {
+	values := url.Values{}
+	if enabled {
+		values.Set("mode", "1")
+	} else {
+		values.Set("mode", "0")
+	}
+
+	return q.postReq(ctx, "api/v2/transfer/setSpeedLimitsMode", values, nil)
+}
+
 // GetXfers returns data about all transfers/downloads in the Qbit client.
 func (q *Qbit) GetXfers() ([]*Xfer, error) {
 	return q.GetXfersContext(context.Background())

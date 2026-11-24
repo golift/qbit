@@ -210,6 +210,77 @@ func TestGetCategories(t *testing.T) {
 	assert.Equal(t, "/data/tv", cats["tv"].SavePath)
 }
 
+func TestSpeedLimitsMode(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/speedLimitsMode":
+			assert.Equal(t, http.MethodGet, req.Method)
+			_, _ = writer.Write([]byte(`1`))
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+
+	on, err := client.SpeedLimitsMode()
+	require.NoError(t, err)
+	assert.True(t, on)
+}
+
+func TestToggleSpeedLimitsMode(t *testing.T) {
+	t.Parallel()
+
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/toggleSpeedLimitsMode":
+			assert.Equal(t, http.MethodPost, req.Method)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+	require.NoError(t, client.ToggleSpeedLimitsMode())
+}
+
+func TestSetSpeedLimitsMode(t *testing.T) {
+	t.Parallel()
+
+	got := make(chan string, 3)
+	server := newServer(t, func(writer http.ResponseWriter, req *http.Request) {
+		switch req.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = writer.Write([]byte("Ok."))
+		case "/api/v2/transfer/setSpeedLimitsMode":
+			assert.Equal(t, http.MethodPost, req.Method)
+			require.NoError(t, req.ParseForm())
+			got <- req.Form.Get("mode")
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Errorf("unexpected path: %s", req.URL.Path)
+		}
+	})
+
+	client, err := qbit.New(context.Background(), &qbit.Config{URL: server.URL})
+	require.NoError(t, err)
+	require.NoError(t, client.SetSpeedLimitsMode(false))
+	require.NoError(t, client.SetSpeedLimitsMode(true))
+	require.NoError(t, client.SetSpeedLimitsModeContext(context.Background(), true))
+	assert.Equal(t, "0", <-got)
+	assert.Equal(t, "1", <-got)
+	assert.Equal(t, "1", <-got)
+}
+
 func TestSetTorrentCategory(t *testing.T) {
 	t.Parallel()
 
